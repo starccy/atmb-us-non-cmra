@@ -4,7 +4,7 @@ use log::info;
 use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use crate::atmb::model::Mailbox;
-use crate::atmb::page::{CountryPage, StatePage};
+use crate::atmb::page::{CountryPage, LocationDetailPage, StatePage};
 
 mod page;
 pub mod model;
@@ -36,10 +36,18 @@ impl ATMBClient {
         map
     }
 
-    async fn fetch_page(&self, sub_url_path: &str) -> anyhow::Result<String> {
+    /// get the content of a page
+    ///
+    /// * `url_path` - the path of the page, can be either a full URL or a relative path
+    async fn fetch_page(&self, url_path: &str) -> anyhow::Result<String> {
+        let url = if url_path.starts_with("http") {
+            url_path
+        } else {
+            &format!("{}{}", BASE_URL, url_path)
+        };
         Ok(
             self.client
-                .get(&format!("{}{}", BASE_URL, sub_url_path))
+                .get(url)
                 .send()
                 .await?
                 .text()
@@ -83,6 +91,49 @@ impl ATMBCrawl {
         if mailboxes.len() != total_num {
             bail!("Some mailboxes cannot be fetched");
         }
+
+        // visit every mailbox detail page to get the address line 2
+        let mailboxes = self.update_street2_for_mailbox(mailboxes).await?;
+        if mailboxes.len() != total_num {
+            bail!("Some mailbox's detail cannot be fetched");
+        }
+
+        Ok(mailboxes)
+    }
+
+    async fn update_street2_for_mailbox(&self, mailboxes: Vec<Mailbox>) -> anyhow::Result<Vec<Mailbox>> {
+        let total_mailboxes = mailboxes.len();
+
+        let mailboxes = futures::stream::iter(mailboxes).enumerate().map(|(idx, mut mailbox)| {
+            async move {
+                let fut = || async {
+                    info!("[{}/{}] fetching the detail page of [{}]...", idx + 1, total_mailboxes, mailbox.name);
+                    let detail_page = self.fetch_location_detail_page(&mailbox.link).await?;
+                    mailbox.address.line1 = detail_page.street();
+                    Result::<_, anyhow::Error>::Ok(mailbox)
+                };
+                match fut().await {
+                    Ok(mailbox) => Some(mailbox),
+                    Err(err) => {
+                        log::error!("cannot fetch detail page for: {:?}", err);
+                        None
+                    }
+                }
+            }
+        })
+            .buffer_unordered(10)
+            .collect::<Vec<_>>()
+            .await;
+
+        // let mailboxes = mailboxes.into_iter().filter_map(|mailbox| match mailbox {
+        //     Ok(mailbox) => Some(mailbox),
+        //     Err(e) => {
+        //         log::error!("cannot fetch detail page: {:?}", e);
+        //         None
+        //     }
+        // })
+        //     .collect();
+        let mailboxes = mailboxes.into_iter().filter_map(|mailbox| mailbox).collect();
         Ok(mailboxes)
     }
 
@@ -111,5 +162,10 @@ impl ATMBCrawl {
             bail!("Some states cannot be fetched");
         }
         Ok(state_pages.into_iter().map(|state_page| state_page.unwrap()).collect())
+    }
+
+    async fn fetch_location_detail_page(&self, mailbox_link: &str) -> anyhow::Result<LocationDetailPage> {
+        let html = self.client.fetch_page(mailbox_link).await?;
+        Ok(LocationDetailPage::parse_html(&html)?)
     }
 }

@@ -12,7 +12,7 @@
 
 ## 本地运行
 
-1. 安装 [rust](https://www.rust-lang.org/) 环境，并确保版本在 1.80 或以上。
+1. 安装 [rust](https://www.rust-lang.org/) 环境，并确保使用 nightly 版本，且版本号在 1.80 或以上。
 2. 注册 [smarty](https://www.smarty.com/) 帐号，并获取 API key. 由于免费帐号一个月只能查询 1000 次，而 atmb 目前有 1700 多个美国地址，所以至少需要注册两个帐号
     来完成查询。
 3. 设置环境变量 `CRENDENTIALS`, 值的格式为：

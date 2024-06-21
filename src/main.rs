@@ -11,9 +11,18 @@ mod atmb;
 mod record;
 mod smarty;
 
+fn init_logger() {
+    match std::env::var("RUST_LOG") {
+        Err(_) => unsafe { std::env::set_var("RUST_LOG", "info") },
+        _ => {}
+    }
+
+    env_logger::init();
+}
+
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    init_logger();
 
     match run().await {
         Err(e) => {

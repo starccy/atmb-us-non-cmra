@@ -5,7 +5,7 @@ use smarty_rust_sdk::sdk::authentication::SecretKeyCredential;
 use smarty_rust_sdk::sdk::batch::Batch;
 use smarty_rust_sdk::sdk::options::{Options, OptionsBuilder};
 use smarty_rust_sdk::us_street_api::client::USStreetAddressClient;
-use smarty_rust_sdk::us_street_api::lookup::Lookup;
+use smarty_rust_sdk::us_street_api::lookup::{Lookup, MatchStrategy};
 use crate::atmb::model::Address;
 
 /// A free trial account is limited to 1000 lookups per month.
@@ -32,7 +32,7 @@ impl SmartyClientProxy {
         )
     }
 
-    pub async fn inquire_address(&self, address: Address) -> anyhow::Result<crate::smarty::AdditionalInfo> {
+    pub async fn inquire_address(&self, address: Address) -> anyhow::Result<AdditionalInfo> {
         let client = self.next_client();
         client.inquire_address(address).await
     }
@@ -127,6 +127,7 @@ impl From<Address> for Lookup {
             street: address.line1,
             city: address.city,
             state: address.state,
+            match_strategy: MatchStrategy::Enhanced,
             ..Default::default()
         }
     }

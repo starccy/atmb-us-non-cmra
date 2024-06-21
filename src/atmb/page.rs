@@ -11,6 +11,7 @@ static LOCATION_TITLE_SELECTOR: LazyLock<Selector> = LazyLock::new(|| Selector::
 static LOCATION_PRICE_SELECTOR: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"div[class="t-price"]"#).unwrap());
 static LOCATION_ADDRESS_SELECTOR: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"div[class="t-addr"]"#).unwrap());
 static LOCATION_PLAN_SELECTOR: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"a[class~="gt-plan"]"#).unwrap());
+static LOCATION_DETAIL_SELECTOR: LazyLock<Selector> = LazyLock::new(|| Selector::parse(r#"div[class="t-sec1"] div[class="t-text"]"#).unwrap());
 
 /// ATMB country page. i.e. https://www.anytimemailbox.com/l/usa
 #[derive(Debug)]
@@ -73,7 +74,9 @@ impl StatePage {
 #[derive(Debug, Clone)]
 pub struct LocationHtmlInfo {
     name: String,
+    /// street address
     line1: String,
+    /// city, state, zip
     line2: String,
     price: String,
     link: String,
@@ -171,6 +174,52 @@ impl LocationHtmlInfo {
     }
 }
 
+/// ATMB location detail page. i.e. https://www.anytimemailbox.com/s/birmingham-120-19th-street-north
+pub struct LocationDetailPage {
+    /// street address
+    line1: String,
+    /// unit, suite, etc.
+    line2: Option<String>,
+}
+
+impl LocationDetailPage {
+    pub fn parse_html(html: &str) -> anyhow::Result<Self> {
+        let document = Html::parse_document(html);
+        let address_container = document.select(&LOCATION_DETAIL_SELECTOR).next().unwrap();
+        let div_selector = Selector::parse("div").unwrap();
+
+        let lines = address_container.select(&div_selector)
+            .map(|div| div.text().collect::<String>())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+
+        let line2 = match lines.len() {
+            // no line2
+            4 => None,
+            // one-line line2
+            5 => Some(lines[2].to_string()),
+            // two-line line2
+            6 => Some(format!("{} {}", lines[2], lines[3])),
+            _ => bail!("Unexpected address line count: {}, page structure might be changed: {:?}", lines.len(), lines),
+        };
+        Ok(
+            Self {
+                line1: lines[1].clone(),
+                line2,
+            }
+        )
+    }
+
+    /// concatenate line1 and line2
+    pub fn street(&self) -> String {
+        if let Some(line2) = &self.line2 {
+            format!("{} {}", self.line1, line2)
+        } else {
+            self.line1.clone()
+        }
+    }
+}
+
 impl TryInto<Address> for LocationHtmlInfo {
     type Error = anyhow::Error;
 
@@ -209,6 +258,7 @@ mod test {
 
     const COUNTRY_PAGE_HTML: &str = include_str!("../../test_data/https___www.anytimemailbox.com_l_usa.html");
     const STATE_PAGE_HTML: &str = include_str!("../../test_data/https___www.anytimemailbox.com_l_usa_alabama.html");
+    const LOCATION_PAGE_HTML: &str = include_str!("../../test_data/https___www.anytimemailbox.com_s_birmingham-120-19th-street-north.html");
 
     fn new_location_info() -> LocationHtmlInfo {
         LocationHtmlInfo {
@@ -247,7 +297,7 @@ mod test {
         assert_eq!(mailbox.address.line1, "123 Main St");
         assert_eq!(mailbox.address.city, "City");
         assert_eq!(mailbox.address.state, "ST");
-        assert_eq!(mailbox.address.zip, 12345);
+        assert_eq!(mailbox.address.zip, "12345");
         assert!(mailbox.address.zip4.is_none());
         assert_eq!(mailbox.price, "US$9.99/month");
 
@@ -257,8 +307,8 @@ mod test {
         assert_eq!(mailbox.address.line1, "123 Main St");
         assert_eq!(mailbox.address.city, "City");
         assert_eq!(mailbox.address.state, "ST");
-        assert_eq!(mailbox.address.zip, 12345);
-        assert_eq!(mailbox.address.zip4, Some(6789));
+        assert_eq!(mailbox.address.zip, "12345");
+        assert_eq!(mailbox.address.zip4, Some("6789".to_string()));
         assert_eq!(mailbox.price, "US$9.99/month");
     }
 
@@ -268,5 +318,12 @@ mod test {
         let (line1, line2) = StatePage::split_address(address).unwrap();
         assert_eq!(line1, "123 Main St");
         assert_eq!(line2, "City With WhiteSpace, ST 12345");
+    }
+
+    #[test]
+    fn test_parse_location_detail_page() {
+        let location_detail = LocationDetailPage::parse_html(LOCATION_PAGE_HTML).unwrap();
+        assert_eq!(location_detail.line1, "120 19th Street North");
+        assert_eq!(location_detail.line2, Some("Suite MAILBOX".to_string()));
     }
 }
