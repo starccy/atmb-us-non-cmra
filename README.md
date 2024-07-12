@@ -20,3 +20,6 @@
     将 `API_ID1`、`API_TOKEN1` 等替换为实际的 API ID 和 TOKEN。
 4. 进入项目根目录，命令行执行 `cargo run --release`。
 5. 等待程序运行完成，查看运行结果： `result/mailboxes.csv`。
+
+## TODO
+使用 Github Action 定时更新地址列表
