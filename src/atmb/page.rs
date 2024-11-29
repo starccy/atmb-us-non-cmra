@@ -1,5 +1,5 @@
 use std::sync::LazyLock;
-use anyhow::{anyhow, bail};
+use color_eyre::eyre::{bail, eyre};
 use regex::Regex;
 use scraper::{Html, Selector};
 use crate::atmb::model::{Address, Mailbox};
@@ -37,7 +37,7 @@ impl StateHtmlInfo<'_> {
 
 impl<'a> CountryPage<'a> {
     /// get state list from the country page
-    pub fn parse_html(html: &'a str) -> anyhow::Result<Self> {
+    pub fn parse_html(html: &'a str) -> color_eyre::Result<Self> {
         let mut states = Vec::new();
 
         for caps in STATE_LIST_REG.captures_iter(html) {
@@ -83,7 +83,7 @@ pub struct LocationHtmlInfo {
 }
 
 impl StatePage {
-    pub fn parse_html(html: &str) -> anyhow::Result<Self> {
+    pub fn parse_html(html: &str) -> color_eyre::Result<Self> {
         let mut locations = Vec::new();
 
         let document = Html::parse_document(html);
@@ -91,23 +91,23 @@ impl StatePage {
 
         for location_fragment in location_container {
             let title = location_fragment.select(&LOCATION_TITLE_SELECTOR).next()
-                .ok_or_else(|| anyhow!("No title found - {}", location_fragment.html()))?
+                .ok_or_else(|| eyre!("No title found - {}", location_fragment.html()))?
                 .text()
                 .collect::<String>();
             let price = location_fragment.select(&LOCATION_PRICE_SELECTOR).next()
-                .ok_or_else(|| anyhow!("No price found - {}", location_fragment.html()))?
+                .ok_or_else(|| eyre!("No price found - {}", location_fragment.html()))?
                 .text()
                 .collect::<String>();
             let address = location_fragment.select(&LOCATION_ADDRESS_SELECTOR).next()
-                .ok_or_else(|| anyhow!("No address found - {}", location_fragment.html()))?
+                .ok_or_else(|| eyre!("No address found - {}", location_fragment.html()))?
                 .inner_html();
             let (line1, line2) = Self::split_address(&address)
-                .ok_or_else(|| anyhow!("Failed to split address - {}", address))?;
+                .ok_or_else(|| eyre!("Failed to split address - {}", address))?;
             let plan_link = location_fragment.select(&LOCATION_PLAN_SELECTOR).next()
-                .ok_or_else(|| anyhow!("No plan button found - {}", location_fragment.html()))?
+                .ok_or_else(|| eyre!("No plan button found - {}", location_fragment.html()))?
                 .value()
                 .attr("href")
-                .ok_or_else(|| anyhow!("No plan link found - {}", location_fragment.html()))?;
+                .ok_or_else(|| eyre!("No plan link found - {}", location_fragment.html()))?;
 
             let location_link = format!("{}{}", super::BASE_URL, plan_link);
             locations.push(LocationHtmlInfo {
@@ -126,7 +126,7 @@ impl StatePage {
         )
     }
 
-    pub fn to_mailboxes(&self) -> anyhow::Result<Vec<Mailbox>> {
+    pub fn to_mailboxes(&self) -> color_eyre::Result<Vec<Mailbox>> {
         self.locations.iter()
             .map(|location| location.clone().try_into())
             .collect()
@@ -183,7 +183,7 @@ pub struct LocationDetailPage {
 }
 
 impl LocationDetailPage {
-    pub fn parse_html(html: &str) -> anyhow::Result<Self> {
+    pub fn parse_html(html: &str) -> color_eyre::Result<Self> {
         let document = Html::parse_document(html);
         let address_container = document.select(&LOCATION_DETAIL_SELECTOR).next().unwrap();
         let div_selector = Selector::parse("div").unwrap();
@@ -200,6 +200,7 @@ impl LocationDetailPage {
             5 => Some(lines[2].to_string()),
             // two-line line2
             6 => Some(format!("{} {}", lines[2], lines[3])),
+            7 => None,
             _ => bail!("Unexpected address line count: {}, page structure might be changed: {:?}", lines.len(), lines),
         };
         Ok(
@@ -221,14 +222,14 @@ impl LocationDetailPage {
 }
 
 impl TryInto<Address> for LocationHtmlInfo {
-    type Error = anyhow::Error;
+    type Error = color_eyre::eyre::Error;
 
     fn try_into(self) -> Result<Address, Self::Error> {
-        let (zip, zip4) = self.parse_zip().ok_or_else(|| anyhow!("Failed to parse zip code from: {}", self.line2))?;
+        let (zip, zip4) = self.parse_zip().ok_or_else(|| eyre!("Failed to parse zip code from: {}", self.line2))?;
         Ok(
             Address {
-                city: self.parse_city().ok_or_else(|| anyhow!("Failed to parse city from: {}", self.line2))?.to_string(),
-                state: self.parse_state().ok_or_else(|| anyhow!("Failed to parse state from: {}", self.line2))?.to_string(),
+                city: self.parse_city().ok_or_else(|| eyre!("Failed to parse city from: {}", self.line2))?.to_string(),
+                state: self.parse_state().ok_or_else(|| eyre!("Failed to parse state from: {}", self.line2))?.to_string(),
                 zip: zip.to_owned(),
                 zip4: zip4.map(|s| s.to_owned()),
                 line1: self.line1,
@@ -238,7 +239,7 @@ impl TryInto<Address> for LocationHtmlInfo {
 }
 
 impl TryInto<Mailbox> for LocationHtmlInfo {
-    type Error = anyhow::Error;
+    type Error = color_eyre::eyre::Error;
 
     fn try_into(self) -> Result<Mailbox, Self::Error> {
         Ok(

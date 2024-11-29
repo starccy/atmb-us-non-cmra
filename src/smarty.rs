@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use anyhow::bail;
+use color_eyre::eyre::{bail, eyre};
 use serde::{Deserialize, Serialize};
 use smarty_rust_sdk::sdk::authentication::SecretKeyCredential;
 use smarty_rust_sdk::sdk::batch::Batch;
@@ -7,6 +7,7 @@ use smarty_rust_sdk::sdk::options::{Options, OptionsBuilder};
 use smarty_rust_sdk::us_street_api::client::USStreetAddressClient;
 use smarty_rust_sdk::us_street_api::lookup::{Lookup, MatchStrategy};
 use crate::atmb::model::Address;
+use crate::utils::retry_wrapper;
 
 /// A free trial account is limited to 1000 lookups per month.
 /// So we use multiple accounts to avoid the limitation.
@@ -18,7 +19,7 @@ pub struct SmartyClientProxy {
 }
 
 impl SmartyClientProxy {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new() -> color_eyre::Result<Self> {
         let credentials = Self::credentials();
         let clients = credentials.into_iter()
             .map(|(id, secret)| SmartyClient::new(id, secret))
@@ -32,7 +33,7 @@ impl SmartyClientProxy {
         )
     }
 
-    pub async fn inquire_address(&self, address: Address) -> anyhow::Result<AdditionalInfo> {
+    pub async fn inquire_address(&self, address: Address) -> color_eyre::Result<AdditionalInfo> {
         let client = self.next_client();
         client.inquire_address(address).await
     }
@@ -88,7 +89,7 @@ struct SmartyClient {
 }
 
 impl SmartyClient {
-    fn new(auth_id: impl Into<String>, auth_token: impl Into<String>) -> anyhow::Result<Self> {
+    fn new(auth_id: impl Into<String>, auth_token: impl Into<String>) -> color_eyre::Result<Self> {
         Ok(
             Self {
                 client: USStreetAddressClient::new(Self::options(auth_id, auth_token))?,
@@ -96,12 +97,18 @@ impl SmartyClient {
         )
     }
 
-    async fn inquire_address(&self, address: Address) -> anyhow::Result<AdditionalInfo> {
+    async fn inquire_address(&self, address: Address) -> color_eyre::Result<AdditionalInfo> {
+        retry_wrapper(3, || async {
+            self._inquire_address(address.clone()).await
+        }).await
+    }
+
+    async fn _inquire_address(&self, address: Address) -> color_eyre::Result<AdditionalInfo> {
         let mut batch = Batch::default();
         batch.push(Lookup::from(address))?;
         self.client.send(&mut batch).await?;
         let resp = batch.records().into_iter().next()
-            .ok_or_else(|| anyhow::anyhow!("no response from Smarty"))?;
+            .ok_or_else(|| eyre!("no response from Smarty"))?;
         resp.clone().try_into()
     }
 
@@ -172,7 +179,7 @@ impl AdditionalInfo {
 }
 
 impl TryFrom<Lookup> for AdditionalInfo {
-    type Error = anyhow::Error;
+    type Error = color_eyre::eyre::Error;
 
     fn try_from(lookup: Lookup) -> Result<Self, Self::Error> {
         if lookup.results.is_empty() {
@@ -186,9 +193,9 @@ impl TryFrom<Lookup> for AdditionalInfo {
         Ok(
             Self {
                 cmra: YesOrNo::try_from(candidate.analysis.dpv_cmra)
-                    .map_err(|e| anyhow::anyhow!("failed to parse CMRA: {}", e))?,
+                    .map_err(|e| eyre!("failed to parse CMRA: {}", e))?,
                 rdi: Rdi::try_from(candidate.metadata.rdi)
-                    .map_err(|e| anyhow::anyhow!("failed to parse RDI: {}", e))?,
+                    .map_err(|e| eyre!("failed to parse RDI: {}", e))?,
             }
         )
     }

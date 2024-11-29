@@ -10,14 +10,28 @@ use crate::smarty::{AdditionalInfo, SmartyClientProxy};
 mod atmb;
 mod record;
 mod smarty;
+mod utils;
 
 fn init_logger() {
-    match std::env::var("RUST_LOG") {
-        Err(_) => unsafe { std::env::set_var("RUST_LOG", "info") },
-        _ => {}
-    }
+    install_tracing();
+    color_eyre::install().unwrap();
+}
 
-    env_logger::init();
+fn install_tracing() {
+    use tracing_error::ErrorLayer;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let fmt_layer = fmt::layer().with_target(false);
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer)
+        .with(ErrorLayer::default())
+        .init();
 }
 
 #[tokio::main]
@@ -33,7 +47,7 @@ async fn main() {
     }
 }
 
-async fn run() -> anyhow::Result<()> {
+async fn run() -> color_eyre::Result<()> {
     let atmb = ATMBCrawl::new()?;
     let mailboxes = atmb.fetch().await?;
 
@@ -57,7 +71,7 @@ async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn inquire_mailboxes_info(mailboxes: Vec<Mailbox>) -> anyhow::Result<HashMap<Mailbox, AdditionalInfo>> {
+async fn inquire_mailboxes_info(mailboxes: Vec<Mailbox>) -> color_eyre::Result<HashMap<Mailbox, AdditionalInfo>> {
     let client = SmartyClientProxy::new()?;
 
     let total = mailboxes.len();
@@ -85,7 +99,7 @@ async fn inquire_mailboxes_info(mailboxes: Vec<Mailbox>) -> anyhow::Result<HashM
 }
 
 /// write result to CSV file
-fn save_records(mut records: Vec<Record>, save_path: impl AsRef<Path>) -> anyhow::Result<()> {
+fn save_records(mut records: Vec<Record>, save_path: impl AsRef<Path>) -> color_eyre::Result<()> {
     records.sort_by(|r1, r2| (&r1.cmra, &r1.rdi).cmp(&(&r2.cmra, &r2.rdi)));
     if let Some(parent) = save_path.as_ref().parent() {
         if !parent.exists() {
