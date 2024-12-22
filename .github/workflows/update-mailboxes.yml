@@ -1,0 +1,44 @@
+name: Update AnytimeMailbox Addresses
+
+on:
+  schedule:
+    - cron: '0 2 1 * *' # 每月 1 日凌晨 2 点运行（UTC 时间）
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  update-mailboxes:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. 设置 Rust 环境
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      # 3. 设置 Smarty API 环境变量
+      - name: Set API credentials
+        env:
+          CRENDENTIALS: ${{ secrets.CRENDENTIALS }}
+        run: echo "Environment variables are set."
+
+      # 4. 运行项目
+      - name: Run the project
+        run: cargo run --release
+
+      # 5. 提交更新结果
+      - name: Commit and push updates
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add result/mailboxes.csv
+          git commit -m "Update mailboxes list (automated)"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
