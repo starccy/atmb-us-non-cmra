@@ -1,0 +1,43 @@
+name: Update ATMB Address List
+on:
+  push:
+    branches:
+      - workflows
+  schedule:
+      - cron: '0 0 1 * *'
+
+jobs:
+  fetch:
+    name: Fetch New Data
+    runs-on: ubuntu-latest
+    env:
+      CREDENTIALS: ${{ secrets.CREDENTIALS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Build and Run
+        run: cargo run --release
+
+      - name: Check for Changes
+        run: |
+          git add result/mailboxes.csv
+          if git diff --cached --quiet; then
+            echo "No changes detected"
+            echo "changed=false" >> $GITHUB_ENV
+          else
+            echo "Changes detected"
+            echo "changed=true" >> $GITHUB_ENV
+          fi
+
+      - name: Create Pull Request
+        if: env.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          title: 'CI: update mailboxes.csv'
+          commit-message: 'ci: update address list'
+          branch: 'update-atmb-address-${{ github.run_id }}'
+          delete-branch: 'true'
