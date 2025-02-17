@@ -1,5 +1,8 @@
 name: Update ATMB Address List
 on:
+  push:
+    branches:
+      - workflows
   workflow_dispatch:
   schedule:
       - cron: '0 0 1 * *'
